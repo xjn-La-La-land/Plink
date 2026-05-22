@@ -10,8 +10,13 @@ if (-not (Test-Path $cscPath)) {
 $srcDir = $PSScriptRoot
 $outExe = Join-Path $srcDir "Plink.exe"
 $iconPath = Join-Path $srcDir "plink.ico"
+$typingSoundPath = Join-Path $srcDir "assets\typewriter.wav"
 if (-not (Test-Path $iconPath)) {
     Write-Host "ERROR: plink.ico not found. Run make-icon.ps1 first."
+    exit 1
+}
+if (-not (Test-Path $typingSoundPath)) {
+    Write-Host "ERROR: assets\typewriter.wav not found."
     exit 1
 }
 
@@ -28,6 +33,7 @@ $cscArgs = @(
     "/codepage:65001"
     "/win32icon:$iconPath"
     "/resource:$iconPath,plink.ico"
+    "/resource:$typingSoundPath,typewriter.wav"
     "/win32manifest:$(Join-Path $srcDir 'app.manifest')"
     "/out:$outExe"
     "/reference:System.dll"

@@ -18,32 +18,42 @@ namespace Plink
         // times, or a multi-file delete) into a single sound.
         private const int CopyDebounceMs = 200;
         private const int DeleteDebounceMs = 500;
+        private const int TypingDebounceMs = 100;
 
         private readonly AppSettings _settings;
         private readonly Icon _appIcon;
         private readonly NotifyIcon _trayIcon;
         private readonly ClipboardMonitor _clipboardMonitor;
         private readonly RecycleBinMonitor _recycleBinMonitor;
+        private readonly KeyboardMonitor _keyboardMonitor;
         private readonly Win11MenuRenderer _menuRenderer;
 
         private readonly object _soundLock = new object();
         private DateTime _lastCopy = DateTime.MinValue;
         private DateTime _lastDelete = DateTime.MinValue;
+        private DateTime _lastTyping = DateTime.MinValue;
 
         private SoundPlayer _copyPlayer;
         private string _copyPlayerPath;
+        private Stream _copyPlayerStream;
         private SoundPlayer _deletePlayer;
         private string _deletePlayerPath;
+        private Stream _deletePlayerStream;
+        private SoundPlayer _typingPlayer;
+        private string _typingPlayerPath;
+        private Stream _typingPlayerStream;
 
         private ToolStripMenuItem _copyItem;
         private ToolStripMenuItem _deleteItem;
+        private ToolStripMenuItem _typingItem;
         private ToolStripMenuItem _autoStartItem;
 
         public TrayApplicationContext()
         {
             _settings = AppSettings.Load();
             DebugLog.Write("starting; copyEnabled=" + _settings.CopyEnabled
-                + " deleteEnabled=" + _settings.DeleteEnabled);
+                + " deleteEnabled=" + _settings.DeleteEnabled
+                + " typingEnabled=" + _settings.TypingEnabled);
 
             _appIcon = LoadAppIcon();
             _menuRenderer = new Win11MenuRenderer();
@@ -60,6 +70,11 @@ namespace Plink
             _recycleBinMonitor = new RecycleBinMonitor();
             _recycleBinMonitor.FileDeleted += OnFileDeleted;
             _recycleBinMonitor.Start();
+
+            _keyboardMonitor = new KeyboardMonitor();
+            _keyboardMonitor.KeyPressed += OnKeyboardPressed;
+            if (_settings.TypingEnabled)
+                StartKeyboardMonitor();
 
             AutoStart.RefreshPath();
             SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
@@ -114,14 +129,19 @@ namespace Plink
             _deleteItem = MakeItem("删除到回收站时播放声音", OnToggleDelete);
             _deleteItem.Checked = _settings.DeleteEnabled;
 
+            _typingItem = MakeItem("键盘输入时播放声音", OnToggleTyping);
+            _typingItem.Checked = _settings.TypingEnabled;
+
             _autoStartItem = MakeItem("开机自动启动", OnToggleAutoStart);
             _autoStartItem.Checked = AutoStart.IsEnabled();
 
             menu.Items.Add(_copyItem);
             menu.Items.Add(_deleteItem);
+            menu.Items.Add(_typingItem);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(MakeItem("选择复制音效…", OnChooseCopySound));
             menu.Items.Add(MakeItem("选择删除音效…", OnChooseDeleteSound));
+            menu.Items.Add(MakeItem("选择键盘音效…", OnChooseTypingSound));
             menu.Items.Add(MakeItem("恢复默认音效", OnResetSounds));
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(_autoStartItem);
@@ -188,6 +208,18 @@ namespace Plink
             _settings.Save();
         }
 
+        private void OnToggleTyping(object sender, EventArgs e)
+        {
+            _settings.TypingEnabled = !_settings.TypingEnabled;
+            _typingItem.Checked = _settings.TypingEnabled;
+            _settings.Save();
+
+            if (_settings.TypingEnabled)
+                StartKeyboardMonitor();
+            else
+                StopKeyboardMonitor();
+        }
+
         private void OnToggleAutoStart(object sender, EventArgs e)
         {
             AutoStart.SetEnabled(!_autoStartItem.Checked);
@@ -201,7 +233,7 @@ namespace Plink
             {
                 _settings.CopySound = picked;
                 _settings.Save();
-                PlaySound(ref _copyPlayer, ref _copyPlayerPath, picked);
+                PlaySound(ref _copyPlayer, ref _copyPlayerPath, ref _copyPlayerStream, picked);
             }
         }
 
@@ -212,7 +244,18 @@ namespace Plink
             {
                 _settings.DeleteSound = picked;
                 _settings.Save();
-                PlaySound(ref _deletePlayer, ref _deletePlayerPath, picked);
+                PlaySound(ref _deletePlayer, ref _deletePlayerPath, ref _deletePlayerStream, picked);
+            }
+        }
+
+        private void OnChooseTypingSound(object sender, EventArgs e)
+        {
+            string picked = PickWav(_settings.TypingSound);
+            if (picked != null)
+            {
+                _settings.TypingSound = picked;
+                _settings.Save();
+                PlaySound(ref _typingPlayer, ref _typingPlayerPath, ref _typingPlayerStream, picked);
             }
         }
 
@@ -220,6 +263,7 @@ namespace Plink
         {
             _settings.CopySound = AppSettings.DefaultCopySound;
             _settings.DeleteSound = AppSettings.DefaultDeleteSound;
+            _settings.TypingSound = AppSettings.DefaultTypingSound;
             _settings.Save();
         }
 
@@ -253,7 +297,7 @@ namespace Plink
                 return;
             }
             DebugLog.Write("clipboard update -> copy sound");
-            PlaySound(ref _copyPlayer, ref _copyPlayerPath, _settings.CopySound);
+            PlaySound(ref _copyPlayer, ref _copyPlayerPath, ref _copyPlayerStream, _settings.CopySound);
         }
 
         private void OnFileDeleted(object sender, EventArgs e)
@@ -266,7 +310,40 @@ namespace Plink
                 return;
             }
             DebugLog.Write("delete event -> delete sound");
-            PlaySound(ref _deletePlayer, ref _deletePlayerPath, _settings.DeleteSound);
+            PlaySound(ref _deletePlayer, ref _deletePlayerPath, ref _deletePlayerStream, _settings.DeleteSound);
+        }
+
+        private void OnKeyboardPressed(object sender, EventArgs e)
+        {
+            if (!_settings.TypingEnabled)
+                return;
+            if (!ShouldPlay(ref _lastTyping, TypingDebounceMs))
+                return;
+            PlaySound(ref _typingPlayer, ref _typingPlayerPath, ref _typingPlayerStream, _settings.TypingSound);
+        }
+
+        private void StartKeyboardMonitor()
+        {
+            if (_keyboardMonitor.Start())
+                return;
+
+            _settings.TypingEnabled = false;
+            if (_typingItem != null)
+                _typingItem.Checked = false;
+            _settings.Save();
+
+            if (_trayIcon != null)
+            {
+                _trayIcon.ShowBalloonTip(3000,
+                    "Plink",
+                    "键盘输入音效启动失败。",
+                    ToolTipIcon.Warning);
+            }
+        }
+
+        private void StopKeyboardMonitor()
+        {
+            _keyboardMonitor.Stop();
         }
 
         private bool ShouldPlay(ref DateTime last, int debounceMs)
@@ -281,20 +358,35 @@ namespace Plink
             }
         }
 
-        private void PlaySound(ref SoundPlayer player, ref string playerPath, string path)
+        private void PlaySound(
+            ref SoundPlayer player,
+            ref string playerPath,
+            ref Stream playerStream,
+            string path)
         {
             try
             {
-                if (string.IsNullOrEmpty(path) || !File.Exists(path))
+                bool isResource = IsResourceSound(path);
+                if (string.IsNullOrEmpty(path) || (!isResource && !File.Exists(path)))
                 {
                     DebugLog.Write("sound file missing: " + (path ?? "(null)"));
                     return;
                 }
                 if (player == null || playerPath != path)
                 {
-                    if (player != null)
-                        player.Dispose();
-                    player = new SoundPlayer(path);
+                    DisposeSound(ref player, ref playerStream);
+                    if (isResource)
+                    {
+                        playerStream = OpenResourceSound(path);
+                        if (playerStream == null)
+                            return;
+                        player = new SoundPlayer(playerStream);
+                        player.Load();
+                    }
+                    else
+                    {
+                        player = new SoundPlayer(path);
+                    }
                     playerPath = path;
                 }
                 player.Play();
@@ -302,6 +394,35 @@ namespace Plink
             catch (Exception ex)
             {
                 DebugLog.Write("play failed: " + ex.Message);
+            }
+        }
+
+        private static bool IsResourceSound(string path)
+        {
+            return path != null &&
+                path.StartsWith("resource://", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static Stream OpenResourceSound(string path)
+        {
+            string resourceName = path.Substring("resource://".Length);
+            Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName);
+            if (stream == null)
+                DebugLog.Write("sound resource missing: " + resourceName);
+            return stream;
+        }
+
+        private static void DisposeSound(ref SoundPlayer player, ref Stream playerStream)
+        {
+            if (player != null)
+            {
+                player.Dispose();
+                player = null;
+            }
+            if (playerStream != null)
+            {
+                playerStream.Dispose();
+                playerStream = null;
             }
         }
 
@@ -361,6 +482,8 @@ namespace Plink
                     _clipboardMonitor.Dispose();
                 if (_recycleBinMonitor != null)
                     _recycleBinMonitor.Dispose();
+                if (_keyboardMonitor != null)
+                    _keyboardMonitor.Dispose();
                 if (_trayIcon != null)
                 {
                     _trayIcon.Visible = false;
@@ -368,10 +491,9 @@ namespace Plink
                 }
                 if (_appIcon != null)
                     _appIcon.Dispose();
-                if (_copyPlayer != null)
-                    _copyPlayer.Dispose();
-                if (_deletePlayer != null)
-                    _deletePlayer.Dispose();
+                DisposeSound(ref _copyPlayer, ref _copyPlayerStream);
+                DisposeSound(ref _deletePlayer, ref _deletePlayerStream);
+                DisposeSound(ref _typingPlayer, ref _typingPlayerStream);
             }
             base.Dispose(disposing);
         }

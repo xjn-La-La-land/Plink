@@ -8,11 +8,14 @@ namespace Plink
     internal sealed class AppSettings
     {
         private const string KeyPath = "Software\\Plink";
+        public const string EmbeddedTypingSound = "resource://typewriter.wav";
 
         public bool CopyEnabled = true;
         public bool DeleteEnabled = true;
+        public bool TypingEnabled = false;
         public string CopySound = DefaultCopySound;
         public string DeleteSound = DefaultDeleteSound;
+        public string TypingSound = DefaultTypingSound;
 
         private static string MediaDir
         {
@@ -33,6 +36,11 @@ namespace Plink
             get { return Path.Combine(MediaDir, "Windows Recycle.wav"); }
         }
 
+        public static string DefaultTypingSound
+        {
+            get { return EmbeddedTypingSound; }
+        }
+
         public static AppSettings Load()
         {
             AppSettings settings = new AppSettings();
@@ -44,8 +52,10 @@ namespace Plink
                     {
                         settings.CopyEnabled = ReadBool(key, "CopyEnabled", settings.CopyEnabled);
                         settings.DeleteEnabled = ReadBool(key, "DeleteEnabled", settings.DeleteEnabled);
+                        settings.TypingEnabled = ReadBool(key, "TypingEnabled", settings.TypingEnabled);
                         settings.CopySound = ReadString(key, "CopySound", settings.CopySound);
                         settings.DeleteSound = ReadString(key, "DeleteSound", settings.DeleteSound);
+                        settings.TypingSound = ReadString(key, "TypingSound", settings.TypingSound);
                     }
                 }
             }
@@ -65,8 +75,10 @@ namespace Plink
                         return;
                     key.SetValue("CopyEnabled", CopyEnabled ? 1 : 0, RegistryValueKind.DWord);
                     key.SetValue("DeleteEnabled", DeleteEnabled ? 1 : 0, RegistryValueKind.DWord);
+                    key.SetValue("TypingEnabled", TypingEnabled ? 1 : 0, RegistryValueKind.DWord);
                     key.SetValue("CopySound", CopySound ?? "", RegistryValueKind.String);
                     key.SetValue("DeleteSound", DeleteSound ?? "", RegistryValueKind.String);
+                    key.SetValue("TypingSound", TypingSound ?? "", RegistryValueKind.String);
                 }
             }
             catch
