@@ -92,18 +92,21 @@ namespace Plink
             CompactContextMenu menu = new CompactContextMenu();
             menu.Renderer = _menuRenderer;
             menu.ShowImageMargin = false;
-            menu.ShowCheckMargin = true;
-            menu.Font = new Font("Segoe UI", 10f, FontStyle.Regular, GraphicsUnit.Point);
+            menu.ShowCheckMargin = false;
+            menu.Font = new Font("Segoe UI", 9f, FontStyle.Regular, GraphicsUnit.Point);
             menu.ImageScalingSize = new Size(16, 16);
-            menu.Padding = new Padding(0, 6, 0, 6);
+            menu.Padding = ScalePadding(0, 8, 0, 8);
             menu.DropShadowEnabled = true;
             menu.Opening += OnMenuOpening;
             menu.Opened += OnMenuOpened;
 
-            // Calibrated at 96 DPI; scaled to the current display. Trims the
-            // unused submenu-arrow gutter off the menu's right edge.
             using (Graphics g = Graphics.FromHwnd(IntPtr.Zero))
+            {
+                // Calibrated at 96 DPI; scaled to the current display. Trims the
+                // unused submenu-arrow gutter off the menu's right edge.
                 menu.GutterTrim = (int)Math.Round(28.0 * g.DpiX / 96.0);
+                menu.MinimumMenuWidth = (int)Math.Round(182.0 * g.DpiX / 96.0);
+            }
 
             _copyItem = MakeItem("复制时播放声音", OnToggleCopy);
             _copyItem.Checked = _settings.CopyEnabled;
@@ -131,8 +134,22 @@ namespace Plink
         private static ToolStripMenuItem MakeItem(string text, EventHandler onClick)
         {
             ToolStripMenuItem item = new ToolStripMenuItem(text, null, onClick);
-            item.Padding = new Padding(4, 6, 0, 6);
+            item.Margin = Padding.Empty;
+            item.Padding = ScalePadding(28, 6, 6, 6);
             return item;
+        }
+
+        private static Padding ScalePadding(int left, int top, int right, int bottom)
+        {
+            using (Graphics g = Graphics.FromHwnd(IntPtr.Zero))
+            {
+                float scale = g.DpiX / 96f;
+                return new Padding(
+                    (int)Math.Round(left * scale),
+                    (int)Math.Round(top * scale),
+                    (int)Math.Round(right * scale),
+                    (int)Math.Round(bottom * scale));
+            }
         }
 
         private void OnMenuOpening(object sender, CancelEventArgs e)

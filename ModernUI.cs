@@ -17,6 +17,7 @@ namespace Plink
         public Color Hover;
         public Color Separator;
         public Color Border;
+        public Color Check;
     }
 
     // Reads the current Windows light/dark setting.
@@ -27,21 +28,23 @@ namespace Plink
             MenuTheme t = new MenuTheme();
             if (IsLightTheme())
             {
-                t.Background = Color.FromArgb(249, 249, 249);
-                t.Text = Color.FromArgb(26, 26, 26);
-                t.DisabledText = Color.FromArgb(156, 156, 156);
-                t.Hover = Color.FromArgb(237, 237, 237);
-                t.Separator = Color.FromArgb(229, 229, 229);
-                t.Border = Color.FromArgb(219, 219, 219);
+                t.Background = Color.FromArgb(250, 250, 250);
+                t.Text = Color.FromArgb(24, 24, 24);
+                t.DisabledText = Color.FromArgb(130, 130, 130);
+                t.Hover = Color.FromArgb(238, 238, 238);
+                t.Separator = Color.FromArgb(220, 220, 220);
+                t.Border = Color.FromArgb(210, 210, 210);
+                t.Check = t.Text;
             }
             else
             {
-                t.Background = Color.FromArgb(44, 44, 44);
-                t.Text = Color.FromArgb(245, 245, 245);
-                t.DisabledText = Color.FromArgb(125, 125, 125);
-                t.Hover = Color.FromArgb(59, 59, 59);
-                t.Separator = Color.FromArgb(64, 64, 64);
-                t.Border = Color.FromArgb(64, 64, 64);
+                t.Background = Color.FromArgb(31, 31, 31);
+                t.Text = Color.FromArgb(248, 248, 248);
+                t.DisabledText = Color.FromArgb(130, 130, 130);
+                t.Hover = Color.FromArgb(52, 52, 52);
+                t.Separator = Color.FromArgb(70, 70, 70);
+                t.Border = Color.FromArgb(53, 53, 53);
+                t.Check = t.Text;
             }
             return t;
         }
@@ -68,20 +71,20 @@ namespace Plink
         }
     }
 
-    // A context menu that reports a slimmer preferred width. ToolStripDropDownMenu
-    // reserves a submenu-arrow gutter on the right of every item, and none of ours
-    // open a submenu, so GutterTrim shaves that dead width off the menu.
-    // Win11MenuRenderer.OnRenderItemText widens each label's text rectangle by the
-    // same amount, so the text is drawn into the reclaimed space and never clipped.
+    // A context menu that can trim ToolStripDropDownMenu's unused submenu-arrow
+    // gutter while still enforcing a compact modern minimum width.
     internal sealed class CompactContextMenu : ContextMenuStrip
     {
         public int GutterTrim;
+        public int MinimumMenuWidth;
 
         public override Size GetPreferredSize(Size proposedSize)
         {
             Size s = base.GetPreferredSize(proposedSize);
             if (GutterTrim > 0)
                 s.Width = Math.Max(16, s.Width - GutterTrim);
+            if (MinimumMenuWidth > 0)
+                s.Width = Math.Max(s.Width, MinimumMenuWidth);
             return s;
         }
     }
@@ -89,6 +92,13 @@ namespace Plink
     // Flat, Windows 11-styled renderer for the tray context menu.
     internal sealed class Win11MenuRenderer : ToolStripRenderer
     {
+        private const int MenuCornerRadius = 11;
+        private const int HoverCornerRadius = 5;
+        private const int ItemTextLeft = 28;
+        private const int ItemTextRight = 4;
+        private const int CheckLeft = 12;
+        private const int SeparatorInset = 12;
+
         public MenuTheme Theme;
 
         public Win11MenuRenderer()
@@ -99,6 +109,7 @@ namespace Plink
         protected override void OnRenderToolStripBackground(ToolStripRenderEventArgs e)
         {
             e.Graphics.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
             using (SolidBrush b = new SolidBrush(Theme.Background))
                 e.Graphics.FillRectangle(b, e.ToolStrip.ClientRectangle);
         }
@@ -110,7 +121,7 @@ namespace Plink
             r.Height -= 1;
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
             using (Pen p = new Pen(Theme.Border))
-            using (GraphicsPath path = RoundedRect(r, 8))
+            using (GraphicsPath path = RoundedRect(r, Scale(e.Graphics, MenuCornerRadius)))
                 e.Graphics.DrawPath(p, path);
         }
 
@@ -128,54 +139,49 @@ namespace Plink
 
             if (e.Item.Selected && e.Item.Enabled)
             {
-                Rectangle hl = new Rectangle(r.X + 4, r.Y + 1, r.Width - 8, r.Height - 2);
+                int xPad = Scale(e.Graphics, 4);
+                int yPad = Scale(e.Graphics, 2);
+                Rectangle hl = new Rectangle(
+                    r.X + xPad,
+                    r.Y + yPad,
+                    r.Width - xPad * 2,
+                    r.Height - yPad * 2);
                 if (hl.Width > 0 && hl.Height > 0)
                 {
                     e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
                     using (SolidBrush hb = new SolidBrush(Theme.Hover))
-                    using (GraphicsPath path = RoundedRect(hl, 5))
+                    using (GraphicsPath path = RoundedRect(hl, Scale(e.Graphics, HoverCornerRadius)))
                         e.Graphics.FillPath(hb, path);
                 }
             }
+
+            ToolStripMenuItem item = e.Item as ToolStripMenuItem;
+            if (item != null && item.Checked)
+                DrawCheck(e.Graphics, e.Item);
         }
 
         protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
         {
             e.Graphics.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
             e.TextColor = e.Item.Enabled ? Theme.Text : Theme.DisabledText;
-            Rectangle r = e.TextRectangle;
-            // Give the label back the width that CompactContextMenu trimmed from
-            // the menu, so the gutter reclaim never eats into the text itself.
-            CompactContextMenu menu = e.ToolStrip as CompactContextMenu;
-            int extra = menu != null ? menu.GutterTrim : 0;
-            e.TextRectangle = new Rectangle(r.X, e.Item.ContentRectangle.Y, r.Width + extra, e.Item.ContentRectangle.Height);
-            e.TextFormat = TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding;
+            int left = Scale(e.Graphics, ItemTextLeft);
+            int right = Scale(e.Graphics, ItemTextRight);
+            e.TextRectangle = new Rectangle(
+                left,
+                0,
+                Math.Max(1, e.Item.Width - left - right),
+                e.Item.Height);
+            e.TextFormat = TextFormatFlags.Left
+                | TextFormatFlags.VerticalCenter
+                | TextFormatFlags.EndEllipsis
+                | TextFormatFlags.NoPrefix;
             base.OnRenderItemText(e);
         }
 
         protected override void OnRenderItemCheck(ToolStripItemImageRenderEventArgs e)
         {
-            ToolStripMenuItem item = e.Item as ToolStripMenuItem;
-            if (item == null || !item.Checked)
-                return;
-
-            Rectangle imgRect = e.ImageRectangle;
-            float cy = e.Item.ContentRectangle.Y + e.Item.ContentRectangle.Height / 2f;
-            float cx = imgRect.X + imgRect.Width / 2f;
-            float sz = Math.Min(imgRect.Width, imgRect.Height) * 0.52f;
-
-            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            float thickness = Math.Max(2.0f, sz * 0.28f);
-            using (Pen p = new Pen(Theme.Text, thickness))
-            {
-                p.StartCap = LineCap.Round;
-                p.EndCap = LineCap.Round;
-                p.LineJoin = LineJoin.Round;
-                PointF a = new PointF(cx - sz * 0.48f, cy);
-                PointF b = new PointF(cx - sz * 0.08f, cy + sz * 0.38f);
-                PointF c2 = new PointF(cx + sz * 0.52f, cy - sz * 0.38f);
-                e.Graphics.DrawLines(p, new PointF[] { a, b, c2 });
-            }
+            // Checks are drawn from OnRenderMenuItemBackground so their position
+            // is independent of ToolStrip's built-in check/image margins.
         }
 
         protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e)
@@ -184,8 +190,63 @@ namespace Plink
             using (SolidBrush b = new SolidBrush(Theme.Background))
                 e.Graphics.FillRectangle(b, r);
             int y = r.Y + r.Height / 2;
+            int inset = Scale(e.Graphics, SeparatorInset);
             using (Pen p = new Pen(Theme.Separator))
-                e.Graphics.DrawLine(p, r.X + 12, y, r.Right - 12, y);
+                e.Graphics.DrawLine(p, r.X + inset, y, r.Right - inset, y);
+        }
+
+        protected override void OnRenderArrow(ToolStripArrowRenderEventArgs e)
+        {
+            Rectangle r = e.ArrowRectangle;
+            float cx = r.X + r.Width / 2f;
+            float cy = r.Y + r.Height / 2f;
+            float size = Scale(e.Graphics, 4);
+
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using (Pen p = new Pen(e.Item.Enabled ? Theme.Text : Theme.DisabledText, Scale(e.Graphics, 1.6f)))
+            {
+                p.StartCap = LineCap.Round;
+                p.EndCap = LineCap.Round;
+                e.Graphics.DrawLines(p, new PointF[]
+                {
+                    new PointF(cx - size * 0.45f, cy - size),
+                    new PointF(cx + size * 0.45f, cy),
+                    new PointF(cx - size * 0.45f, cy + size)
+                });
+            }
+        }
+
+        private void DrawCheck(Graphics g, ToolStripItem item)
+        {
+            float scale = g.DpiX / 96f;
+            float x = CheckLeft * scale;
+            float cy = item.Height / 2f;
+            float width = 10.5f * scale;
+            float height = 7.5f * scale;
+
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            using (Pen p = new Pen(item.Enabled ? Theme.Check : Theme.DisabledText, Math.Max(1.6f, 1.8f * scale)))
+            {
+                p.StartCap = LineCap.Round;
+                p.EndCap = LineCap.Round;
+                p.LineJoin = LineJoin.Round;
+                g.DrawLines(p, new PointF[]
+                {
+                    new PointF(x, cy - height * 0.05f),
+                    new PointF(x + width * 0.35f, cy + height * 0.38f),
+                    new PointF(x + width, cy - height * 0.48f)
+                });
+            }
+        }
+
+        private static int Scale(Graphics g, int value)
+        {
+            return (int)Math.Round(value * g.DpiX / 96f);
+        }
+
+        private static float Scale(Graphics g, float value)
+        {
+            return value * g.DpiX / 96f;
         }
 
         private static GraphicsPath RoundedRect(Rectangle r, int radius)
