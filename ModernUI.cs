@@ -68,6 +68,24 @@ namespace Plink
         }
     }
 
+    // A context menu that reports a slimmer preferred width. ToolStripDropDownMenu
+    // reserves a submenu-arrow gutter on the right of every item, and none of ours
+    // open a submenu, so GutterTrim shaves that dead width off the menu.
+    // Win11MenuRenderer.OnRenderItemText widens each label's text rectangle by the
+    // same amount, so the text is drawn into the reclaimed space and never clipped.
+    internal sealed class CompactContextMenu : ContextMenuStrip
+    {
+        public int GutterTrim;
+
+        public override Size GetPreferredSize(Size proposedSize)
+        {
+            Size s = base.GetPreferredSize(proposedSize);
+            if (GutterTrim > 0)
+                s.Width = Math.Max(16, s.Width - GutterTrim);
+            return s;
+        }
+    }
+
     // Flat, Windows 11-styled renderer for the tray context menu.
     internal sealed class Win11MenuRenderer : ToolStripRenderer
     {
@@ -126,7 +144,11 @@ namespace Plink
             e.Graphics.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
             e.TextColor = e.Item.Enabled ? Theme.Text : Theme.DisabledText;
             Rectangle r = e.TextRectangle;
-            e.TextRectangle = new Rectangle(r.X, e.Item.ContentRectangle.Y, r.Width, e.Item.ContentRectangle.Height);
+            // Give the label back the width that CompactContextMenu trimmed from
+            // the menu, so the gutter reclaim never eats into the text itself.
+            CompactContextMenu menu = e.ToolStrip as CompactContextMenu;
+            int extra = menu != null ? menu.GutterTrim : 0;
+            e.TextRectangle = new Rectangle(r.X, e.Item.ContentRectangle.Y, r.Width + extra, e.Item.ContentRectangle.Height);
             e.TextFormat = TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding;
             base.OnRenderItemText(e);
         }

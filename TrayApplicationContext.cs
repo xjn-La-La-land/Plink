@@ -89,7 +89,7 @@ namespace Plink
 
         private ContextMenuStrip BuildMenu()
         {
-            ContextMenuStrip menu = new ContextMenuStrip();
+            CompactContextMenu menu = new CompactContextMenu();
             menu.Renderer = _menuRenderer;
             menu.ShowImageMargin = false;
             menu.ShowCheckMargin = true;
@@ -99,6 +99,11 @@ namespace Plink
             menu.DropShadowEnabled = true;
             menu.Opening += OnMenuOpening;
             menu.Opened += OnMenuOpened;
+
+            // Calibrated at 96 DPI; scaled to the current display. Trims the
+            // unused submenu-arrow gutter off the menu's right edge.
+            using (Graphics g = Graphics.FromHwnd(IntPtr.Zero))
+                menu.GutterTrim = (int)Math.Round(28.0 * g.DpiX / 96.0);
 
             _copyItem = MakeItem("复制时播放声音", OnToggleCopy);
             _copyItem.Checked = _settings.CopyEnabled;
@@ -126,7 +131,7 @@ namespace Plink
         private static ToolStripMenuItem MakeItem(string text, EventHandler onClick)
         {
             ToolStripMenuItem item = new ToolStripMenuItem(text, null, onClick);
-            item.Padding = new Padding(4, 6, 16, 6);
+            item.Padding = new Padding(4, 6, 0, 6);
             return item;
         }
 
