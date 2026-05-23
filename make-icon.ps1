@@ -16,9 +16,12 @@ function New-RippleBitmap([int]$S) {
     $margin = [Math]::Max(0.5, $S * 0.01)
     $R = $S / 2.0 - $margin
 
-    $drop  = [System.Drawing.Color]::FromArgb(255, 0, 120, 212)
-    $ring1 = [System.Drawing.Color]::FromArgb(235, 0, 120, 212)
-    $ring2 = [System.Drawing.Color]::FromArgb(135, 0, 120, 212)
+    # Amber drop on blue ripples — warm/cool complementary contrast makes the
+    # impact point read as the focal element; the rings stay on the cool blue
+    # gradient (standard -> light cyan) like dispersing sound waves.
+    $drop  = [System.Drawing.Color]::FromArgb(255, 255, 180,   0)
+    $ring1 = [System.Drawing.Color]::FromArgb(255,   0, 120, 212)
+    $ring2 = [System.Drawing.Color]::FromArgb(230, 120, 200, 240)
 
     if ($S -ge 24) {
         $dropR = $R * 0.30
