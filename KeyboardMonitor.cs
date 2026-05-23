@@ -13,12 +13,15 @@ namespace Plink
         private const int WM_SYSKEYDOWN = 0x0104;
         private const int LLKHF_LOWER_IL_INJECTED = 0x00000002;
         private const int LLKHF_INJECTED = 0x00000010;
+        private const int LLKHF_ALTDOWN = 0x00000020;
 
         // Command modifiers. Shift is intentionally not in this set — it's
-        // part of normal typing (capitals, shifted punctuation). VK_CONTROL
-        // and VK_MENU cover both left and right variants for GetAsyncKeyState.
+        // part of normal typing (capitals, shifted punctuation). Alt is read
+        // from the hook event's LLKHF_ALTDOWN bit (GetAsyncKeyState(VK_MENU)
+        // proved unreliable from inside an LL keyboard hook callback). Ctrl
+        // and Win still go through GetAsyncKeyState; VK_CONTROL covers both
+        // left and right Ctrl.
         private const int VK_CONTROL = 0x11;
-        private const int VK_MENU = 0x12;
         private const int VK_LWIN = 0x5B;
         private const int VK_RWIN = 0x5C;
 
@@ -86,7 +89,7 @@ namespace Plink
 
                     if (!IsInjected(data.flags) &&
                         IsCharacterKey(data.vkCode) &&
-                        !IsCommandModifierHeld())
+                        !IsCommandModifierHeld(data.flags))
                     {
                         DateTime now = DateTime.UtcNow;
                         bool tooSoon =
@@ -122,10 +125,10 @@ namespace Plink
         }
 
         // Allow-list of "typing" keys: letters, digits (top row + numpad),
-        // numpad operators, space/Enter/Tab/Backspace, and US punctuation.
-        // Everything else (arrows, F1-F12, Esc, Home/End/PgUp/PgDn, Insert,
-        // Delete, Print Screen, media keys, IME keys, modifiers, locks…) is
-        // silent.
+        // numpad operators, space/Enter/Tab/Backspace/Delete, US punctuation,
+        // and Shift (clicks like a typewriter's shift lever). Everything else
+        // (arrows, F1-F12, Esc, Home/End/PgUp/PgDn, Insert, Print Screen,
+        // media keys, IME keys, Ctrl/Alt/Win, locks…) is silent.
         private static bool IsCharacterKey(int vkCode)
         {
             if (vkCode >= 0x41 && vkCode <= 0x5A) return true;  // A–Z
@@ -138,6 +141,8 @@ namespace Plink
                 case 0x0D:  // Enter (also numpad Enter — same vkCode)
                 case 0x20:  // Space
                 case 0x2E:  // Delete
+                case 0xA0:  // Left Shift
+                case 0xA1:  // Right Shift
                 case 0xBA:  // ;:
                 case 0xBB:  // =+
                 case 0xBC:  // ,<
@@ -158,10 +163,11 @@ namespace Plink
         // Suppresses sound when Ctrl/Alt/Win is held — those make the press
         // a command (Ctrl+C, Alt+Tab, Win+L), not typing. Shift is excluded
         // on purpose: it's a typing modifier.
-        private static bool IsCommandModifierHeld()
+        private static bool IsCommandModifierHeld(int flags)
         {
+            if ((flags & LLKHF_ALTDOWN) != 0)
+                return true;
             return (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0
-                || (GetAsyncKeyState(VK_MENU) & 0x8000) != 0
                 || (GetAsyncKeyState(VK_LWIN) & 0x8000) != 0
                 || (GetAsyncKeyState(VK_RWIN) & 0x8000) != 0;
         }
